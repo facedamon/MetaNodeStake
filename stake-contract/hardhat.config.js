@@ -15,7 +15,9 @@ module.exports = {
     },
   },
   networks: {
-    hardhat: {},
+    hardhat: {
+        loggingEnabled: false,
+    },
     sepolia: {
       url: "https://ethereum-sepolia-rpc.publicnode.com",
       accounts: [process.env.PRIVATE_KEY],
@@ -33,5 +35,9 @@ module.exports = {
             "coverage",
             "**/*d.ts"
         ]
+    },
+    mocha: {
+      timeout: 10000,
+      reporter: 'spec'
     }
 };
