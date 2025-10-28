@@ -14,7 +14,7 @@ import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 contract MetaNodeStake is
     Initializable,
     UUPSUpgradeable,
-    PausableUpgradeable,
+    PausableUpgradeable, //可暂停
     AccessControlUpgradeable
 {
     using SafeERC20 for IERC20;
@@ -26,7 +26,7 @@ contract MetaNodeStake is
     bytes32 public constant ADMIN_ROLE = keccak256("admin_role");
     bytes32 public constant UPGRADE_ROLE = keccak256("upgrade_role");
 
-    uint256 public constant ETH_PID = 0;
+    uint256 public constant ETH_PID = 0; //ETH池ID
     
     // ************************************** DATA STRUCTURE **************************************
     /*
@@ -46,22 +46,23 @@ contract MetaNodeStake is
         // Weight of pool 不同资金池所占的权重
         uint256 poolWeight;
         // Last block number that MetaNodes distribution occurs for pool 
-        uint256 lastRewardBlock;
-        // Accumulated MetaNodes per staking token of pool
+        uint256 lastRewardBlock;//最后奖励区块
+        // Accumulated MetaNodes per staking token of pool 每单位质押代币积累的MetaNode奖励
         uint256 accMetaNodePerST;
         // Staking token amount
         uint256 stTokenAmount;
         // Min staking amount
         uint256 minDepositAmount;
         // Withdraw locked blocks
-        uint256 unstakeLockedBlocks;
+        uint256 unstakeLockedBlocks;//解押等待区块数 管理员设定
     }
 
+    //解押请求
     struct UnstakeRequest {
         // Request withdraw amount
         uint256 amount;
         // The blocks when the request withdraw amount can be released
-        uint256 unlockBlocks;
+        uint256 unlockBlocks;//已解押区块高度
     }
 
     struct User {
@@ -71,7 +72,7 @@ contract MetaNodeStake is
         uint256 finishedMetaNode;
         // Pending to claim MetaNodes 当前可取数量
         uint256 pendingMetaNode;
-        // Withdraw request list
+        // Withdraw request list 请求解押列表
         UnstakeRequest[] requests;
     }
 
@@ -80,12 +81,12 @@ contract MetaNodeStake is
     uint256 public startBlock;
     // First block that MetaNodeStake will end from
     uint256 public endBlock;
-    // MetaNode token reward per block
+    // MetaNode token reward per block 每区块奖励
     uint256 public MetaNodePerBlock;
 
-    // Pause the withdraw function
+    // Pause the withdraw function 提现暂停 提现是指提取本金
     bool public withdrawPaused;
-    // Pause the claim function
+    // Pause the claim function 领取暂停 奖励是指领取代币奖励
     bool public claimPaused;
 
     // MetaNode token
@@ -276,6 +277,7 @@ contract MetaNodeStake is
      */
     function addPool(address _stTokenAddress, uint256 _poolWeight, uint256 _minDepositAmount, uint256 _unstakeLockedBlocks,  bool _withUpdate) public onlyRole(ADMIN_ROLE) {
         // Default the first pool to be ETH pool, so the first pool must be added with stTokenAddress = address(0x0)
+        //第一个池子必须时ETH池
         if (pool.length > 0) {
             require(_stTokenAddress != address(0x0), "invalid staking token address");
         } else {
@@ -375,11 +377,14 @@ contract MetaNodeStake is
         uint256 stSupply = pool_.stTokenAmount;
 
         if (_blockNumber > pool_.lastRewardBlock && stSupply != 0) {
+            //multiplier=(from-to)*MetaNodePerBlock
             uint256 multiplier = getMultiplier(pool_.lastRewardBlock, _blockNumber);
+            //给当前池子的奖励=每个区块的奖励*(当前池子权重/总权重)
             uint256 MetaNodeForPool = multiplier * pool_.poolWeight / totalPoolWeight;
+            //每单位质押代币积累的奖励+=(给当前池子的奖励/当前池子质押总量) 将池子应得的奖励分摊到每个质押代币上
             accMetaNodePerST = accMetaNodePerST + MetaNodeForPool * (1 ether) / stSupply;
         }
-
+        //用户待领取奖励=用户当前质押应得的累计奖励-已结算的奖励+计算但未领取的奖励
         return user_.stAmount * accMetaNodePerST / (1 ether) - user_.finishedMetaNode + user_.pendingMetaNode;
     }
 
@@ -390,7 +395,7 @@ contract MetaNodeStake is
         return user[_pid][_user].stAmount;
     }
 
-    /**
+    /**计算待提取金额，包括已锁定解押和已解押的
      * @notice Get the withdraw amount info, including the locked unstake amount and the unlocked unstake amount
      */
     function withdrawAmount(uint256 _pid, address _user) public checkPid(_pid) view returns(uint256 requestAmount, uint256 pendingWithdrawAmount) {
@@ -406,7 +411,7 @@ contract MetaNodeStake is
 
     // ************************************** PUBLIC FUNCTION **************************************
 
-    /**
+    /**将池子从区块lastRewardBlock到最新区块的奖励算一下，并更新accMetaNodePerST
      * @notice Update reward variables of the given pool to be up-to-date.
      */
     function updatePool(uint256 _pid) public checkPid(_pid) {
@@ -493,9 +498,9 @@ contract MetaNodeStake is
         User storage user_ = user[_pid][msg.sender];
 
         require(user_.stAmount >= _amount, "Not enough staking token balance");
-
+        //更新奖励
         updatePool(_pid);
-
+        //计算待领取奖励
         uint256 pendingMetaNode_ = user_.stAmount * pool_.accMetaNodePerST / (1 ether) - user_.finishedMetaNode;
 
         if(pendingMetaNode_ > 0) {
@@ -503,42 +508,50 @@ contract MetaNodeStake is
         }
 
         if(_amount > 0) {
+            //减少质押数量
             user_.stAmount = user_.stAmount - _amount;
             user_.requests.push(UnstakeRequest({
                 amount: _amount,
                 unlockBlocks: block.number + pool_.unstakeLockedBlocks
             }));
         }
-
+        //更新池子总质押量
         pool_.stTokenAmount = pool_.stTokenAmount - _amount;
+        //重置已完成奖励
         user_.finishedMetaNode = user_.stAmount * pool_.accMetaNodePerST / (1 ether);
 
         emit RequestUnstake(msg.sender, _pid, _amount);
     }
 
-    /**
+    /**提现已解锁的质押本金
      * @notice Withdraw the unlock unstake amount
-     *
+     * 合约未暂停
+     * 提现功能未暂停
      * @param _pid       Id of the pool to be withdrawn from
      */
     function withdraw(uint256 _pid) public whenNotPaused() checkPid(_pid) whenNotWithdrawPaused() {
         Pool storage pool_ = pool[_pid];
         User storage user_ = user[_pid][msg.sender];
 
+        //待提取的余额
         uint256 pendingWithdraw_;
+        //需要弹出的请求数量
         uint256 popNum_;
         for (uint256 i = 0; i < user_.requests.length; i++) {
+            //如果解锁区块>当前区块 说明还未解锁，停止遍历
             if (user_.requests[i].unlockBlocks > block.number) {
                 break;
             }
+            //将已解锁的请求金额累加
             pendingWithdraw_ = pendingWithdraw_ + user_.requests[i].amount;
             popNum_++;
         }
 
+        //前移未解锁请求
         for (uint256 i = 0; i < user_.requests.length - popNum_; i++) {
             user_.requests[i] = user_.requests[i + popNum_];
         }
-
+        //移除尾部多余元素 执行后就只剩下未解锁的请求
         for (uint256 i = 0; i < popNum_; i++) {
             user_.requests.pop();
         }
@@ -554,7 +567,7 @@ contract MetaNodeStake is
         emit Withdraw(msg.sender, _pid, pendingWithdraw_, block.number);
     }
 
-    /**
+    /**领取奖励
      * @notice Claim MetaNode tokens reward
      *
      * @param _pid       Id of the pool to be claimed from
@@ -563,8 +576,9 @@ contract MetaNodeStake is
         Pool storage pool_ = pool[_pid];
         User storage user_ = user[_pid][msg.sender];
 
+        //更新奖励 更新pool_.accMetaNodePerST pool.lastRewardBlock
         updatePool(_pid);
-
+        //总待领取奖励=(当前质押数量*累计奖励率)-已结算奖励+待处理奖励
         uint256 pendingMetaNode_ = user_.stAmount * pool_.accMetaNodePerST / (1 ether) - user_.finishedMetaNode + user_.pendingMetaNode;
 
         if(pendingMetaNode_ > 0) {

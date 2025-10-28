@@ -1,6 +1,7 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
 require("@openzeppelin/hardhat-upgrades");
+require("hardhat-coverage");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -16,8 +17,7 @@ module.exports = {
   networks: {
     hardhat: {},
     sepolia: {
-      url:
-        "https://eth-sepolia.g.alchemy.com/v2/" + process.env.ALCHEMY_API_KEY,
+      url: "https://ethereum-sepolia-rpc.publicnode.com",
       accounts: [process.env.PRIVATE_KEY],
       gasPrice: 30000000000, // 30 Gwei
     },
@@ -25,4 +25,13 @@ module.exports = {
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
   },
+    //覆盖率配置
+    coverage: {
+      enabled: true,
+        exclude: [
+            "node_modules",
+            "coverage",
+            "**/*d.ts"
+        ]
+    }
 };
