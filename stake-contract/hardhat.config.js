@@ -9,7 +9,7 @@ module.exports = {
     version: "0.8.22",
     settings: {
       optimizer: {
-        enabled: false,
+        enabled: true,//优化器
         runs: 200,
       },
     },

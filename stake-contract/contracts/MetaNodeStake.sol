@@ -10,6 +10,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "hardhat/console.sol";
 
 contract MetaNodeStake is
     Initializable,
@@ -379,6 +380,9 @@ contract MetaNodeStake is
         if (_blockNumber > pool_.lastRewardBlock && stSupply != 0) {
             //multiplier=(from-to)*MetaNodePerBlock
             uint256 multiplier = getMultiplier(pool_.lastRewardBlock, _blockNumber);
+            console.log("pid=", _pid);
+            console.log("pool_.lastRewardBlock=", pool_.lastRewardBlock);
+            console.log("_blockNumber=", _blockNumber);
             //给当前池子的奖励=每个区块的奖励*(当前池子权重/总权重)
             uint256 MetaNodeForPool = multiplier * pool_.poolWeight / totalPoolWeight;
             //每单位质押代币积累的奖励+=(给当前池子的奖励/当前池子质押总量) 将池子应得的奖励分摊到每个质押代币上
